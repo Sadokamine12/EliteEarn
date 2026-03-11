@@ -208,6 +208,15 @@ export interface DepositWallets {
   USDT_BEP20: string;
 }
 
+export interface BalanceActivationResponse {
+  vipTierId: string;
+  vipTierName: string;
+  spentAmount: number;
+  remainingBalance: number;
+  subscriptionId: string;
+  expiresAt: string;
+}
+
 export interface WithdrawDto {
   amount: number;
   walletAddress: string;

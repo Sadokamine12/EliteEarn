@@ -4,6 +4,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency } from '@/lib/utils';
 import { useWalletStore } from '@/store/wallet.store';
+import { useVipStore } from '@/store/vip.store';
 import type { VIPTier } from '@/types';
 
 interface DepositModalProps {
@@ -14,11 +15,18 @@ interface DepositModalProps {
 
 export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) => {
   const createDeposit = useWalletStore((state) => state.createDeposit);
+  const activateVipFromBalance = useWalletStore((state) => state.activateVipFromBalance);
   const depositWallets = useWalletStore((state) => state.depositWallets);
+  const balance = useWalletStore((state) => state.balance);
+  const fetchBalance = useWalletStore((state) => state.fetchBalance);
+  const fetchHistory = useWalletStore((state) => state.fetchHistory);
+  const fetchStoreData = useVipStore((state) => state.fetchStoreData);
   const [crypto, setCrypto] = useState<'USDT_ERC20' | 'USDT_TRC20' | 'USDT_BEP20'>('USDT_BEP20');
   const [txHash, setTxHash] = useState('');
   const [proofUrl, setProofUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const availableBalance = balance?.available ?? 0;
+  const canActivateFromBalance = Boolean(vipTier) && availableBalance >= (vipTier?.price ?? 0);
 
   useEffect(() => {
     if (!isOpen) {
@@ -48,6 +56,21 @@ export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) =>
     }
   };
 
+  const handleBalanceActivation = async () => {
+    if (!vipTier) {
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await activateVipFromBalance(vipTier.id);
+      await Promise.all([fetchBalance(), fetchHistory(), fetchStoreData()]);
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Submit VIP deposit">
       {vipTier ? (
@@ -64,6 +87,25 @@ export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) =>
               </div>
             </div>
             <p className="mt-4 text-3xl font-semibold text-white">{formatCurrency(vipTier.price)}</p>
+            <p className="mt-2 text-sm text-slate-300">Available balance: {formatCurrency(availableBalance)}</p>
+          </div>
+
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
+            <p className="text-sm uppercase tracking-[0.2em] text-emerald-300">Instant activation</p>
+            <p className="mt-2 text-sm text-slate-300">
+              If your account balance already covers this tier, you can activate it immediately without waiting for deposit verification.
+            </p>
+            <Button
+              className="mt-4 w-full"
+              size="lg"
+              variant="secondary"
+              onClick={() => void handleBalanceActivation()}
+              disabled={submitting || !canActivateFromBalance}
+            >
+              {canActivateFromBalance
+                ? `Activate with balance (${formatCurrency(availableBalance)})`
+                : `Need ${formatCurrency(vipTier.price - availableBalance)} more in balance`}
+            </Button>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">

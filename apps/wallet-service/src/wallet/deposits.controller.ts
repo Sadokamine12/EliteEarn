@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { CurrentUser, JwtAuthGuard, Roles, RolesGuard } from '@app/common';
 import { CreateDepositDto } from './dto/create-deposit.dto';
+import { ActivateVipFromBalanceDto } from './dto/activate-vip-from-balance.dto';
 import { WalletService } from './wallet.service';
 
 @Controller('deposits')
@@ -11,6 +12,14 @@ export class DepositsController {
   @Post()
   createDeposit(@CurrentUser() user: { sub: string }, @Body() dto: CreateDepositDto) {
     return this.walletService.createDeposit(user.sub, dto);
+  }
+
+  @Post('activate-from-balance')
+  activateFromBalance(
+    @CurrentUser() user: { sub: string },
+    @Body() dto: ActivateVipFromBalanceDto,
+  ) {
+    return this.walletService.activateVipFromBalance(user.sub, dto.vipTierId);
   }
 
   @Get()

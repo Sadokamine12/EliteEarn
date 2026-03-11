@@ -216,6 +216,92 @@ export class WalletService {
     return this.toDepositResponse(result.rows[0]);
   }
 
+  async activateVipFromBalance(userId: string, vipTierId: string) {
+    const tier = await this.getVipTier(vipTierId);
+    await this.assertVipTierCanBeActivated(userId, vipTierId, tier.name);
+    const highestActiveTier = await this.getHighestActiveTier(userId);
+
+    if (
+      highestActiveTier &&
+      Number(tier.sort_order ?? 0) < Number(highestActiveTier.sort_order ?? 0)
+    ) {
+      throw new BadRequestException(
+        `Downgrade is not allowed. Your current highest tier is ${highestActiveTier.name}. Activate that tier or a higher one.`,
+      );
+    }
+
+    const outcome = await this.databaseService.transaction(async (client) => {
+      const balance = await this.ensureBalance(userId, client, true);
+      const available = Number(balance.available);
+      const tierPrice = Number(tier.price);
+
+      if (available < tierPrice) {
+        throw new BadRequestException(
+          `Insufficient balance. ${tier.name} requires ${tierPrice.toFixed(2)} and your available balance is ${available.toFixed(2)}.`,
+        );
+      }
+
+      await client.query(
+        `
+          UPDATE balances
+          SET available = available - $2, updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [userId, tierPrice.toFixed(2)],
+      );
+
+      const subscriptionResult = await client.query<{ id: string; expires_at: string }>(
+        `
+          INSERT INTO subscriptions (
+            user_id,
+            vip_tier_id,
+            status,
+            started_at,
+            expires_at,
+            daily_earnings
+          )
+          VALUES (
+            $1,
+            $2,
+            'active',
+            NOW(),
+            NOW() + ($3 || ' days')::INTERVAL,
+            $4
+          )
+          RETURNING id, expires_at
+        `,
+        [
+          userId,
+          vipTierId,
+          tier.duration_days ?? 30,
+          Number(tier.daily_earnings ?? 0).toFixed(2),
+        ],
+      );
+
+      return {
+        subscriptionId: subscriptionResult.rows[0].id,
+        expiresAt: subscriptionResult.rows[0].expires_at,
+        remainingBalance: available - tierPrice,
+      };
+    });
+
+    await this.insertNotification(
+      userId,
+      'VIP Activated',
+      `${tier.name} was activated using your wallet balance.`,
+      'vip_activated',
+    );
+
+    return {
+      vipTierId,
+      vipTierName: tier.name,
+      spentAmount: Number(tier.price),
+      remainingBalance: outcome.remainingBalance,
+      subscriptionId: outcome.subscriptionId,
+      expiresAt: outcome.expiresAt,
+    };
+  }
+
   async getDepositWallets() {
     const result = await this.databaseService.query<{ key: string; value: string }>(
       `

@@ -3,6 +3,7 @@ import { toast } from 'react-hot-toast';
 import { walletApi } from '@/api/wallet.api';
 import { extractErrorMessage } from '@/lib/utils';
 import type {
+  BalanceActivationResponse,
   Balance,
   CreateDepositDto,
   Deposit,
@@ -22,6 +23,7 @@ interface WalletStore {
   fetchBalance: () => Promise<void>;
   fetchHistory: () => Promise<void>;
   createDeposit: (data: CreateDepositDto) => Promise<void>;
+  activateVipFromBalance: (vipTierId: string) => Promise<BalanceActivationResponse>;
   fetchDepositWallets: () => Promise<void>;
   fetchWithdrawalEligibility: () => Promise<void>;
   requestWithdrawal: (data: WithdrawDto) => Promise<void>;
@@ -67,6 +69,25 @@ export const useWalletStore = create<WalletStore>((set, get) => ({
       const response = await walletApi.createDeposit(data);
       set((state) => ({ deposits: [response.data, ...state.deposits] }));
       toast.success('Deposit submitted for verification');
+    } catch (error) {
+      toast.error(extractErrorMessage(error));
+      throw error;
+    }
+  },
+  activateVipFromBalance: async (vipTierId) => {
+    try {
+      const response = await walletApi.activateVipFromBalance(vipTierId);
+      const currentBalance = get().balance;
+      if (currentBalance) {
+        set({
+          balance: {
+            ...currentBalance,
+            available: response.data.remainingBalance,
+          },
+        });
+      }
+      toast.success(`${response.data.vipTierName} activated using wallet balance`);
+      return response.data;
     } catch (error) {
       toast.error(extractErrorMessage(error));
       throw error;
