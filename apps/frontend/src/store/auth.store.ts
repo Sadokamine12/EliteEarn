@@ -2,6 +2,7 @@ import axios from 'axios';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { AuthResponse, User } from '@/types';
+import { resolveApiUrl } from '@/lib/api-url';
 
 interface AuthStore {
   user: User | null;
@@ -15,8 +16,6 @@ interface AuthStore {
   refreshSession: () => Promise<string | null>;
   markHydrated: () => void;
 }
-
-const getBaseUrl = () => import.meta.env.VITE_API_URL || '';
 
 export const useAuthStore = create<AuthStore>()(
   persist(
@@ -45,7 +44,7 @@ export const useAuthStore = create<AuthStore>()(
 
         try {
           const response = await axios.post<AuthResponse>(
-            `${getBaseUrl()}/api/identity/auth/refresh`,
+            resolveApiUrl('/api/identity/auth/refresh'),
             { refreshToken: currentRefreshToken },
           );
           const { accessToken, refreshToken, user } = response.data;

@@ -1,18 +1,23 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/store/auth.store';
+import { resolveApiUrl } from '@/lib/api-url';
 
 interface RetriableRequestConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
 }
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '',
+  baseURL: '',
 });
 
 let refreshPromise: Promise<string | null> | null = null;
 
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token;
+
+  if (config.url) {
+    config.url = resolveApiUrl(config.url);
+  }
 
   if (token) {
     config.headers = config.headers ?? {};

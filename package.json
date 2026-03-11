@@ -16,6 +16,7 @@
     "dev:tasks": "npm run build && node dist/apps/task-service/src/main.js",
     "dev:notifications": "npm run build && node dist/apps/notification-service/src/main.js",
     "dev:frontend": "npm run dev --workspace @vip/frontend",
+    "start:frontend": "npm run start --workspace @vip/frontend",
     "start:identity": "node dist/apps/identity-service/src/main.js",
     "start:wallet": "node dist/apps/wallet-service/src/main.js",
     "start:vip": "node dist/apps/vip-service/src/main.js",
