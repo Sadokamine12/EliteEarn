@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2022",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "incremental": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "paths": {
+      "@app/common": ["libs/common/src/index.ts"],
+      "@app/common/*": ["libs/common/src/*"],
+      "@app/database": ["libs/database/src/index.ts"],
+      "@app/database/*": ["libs/database/src/*"],
+      "@app/rabbitmq": ["libs/rabbitmq/src/index.ts"],
+      "@app/rabbitmq/*": ["libs/rabbitmq/src/*"]
+    }
+  }
+}

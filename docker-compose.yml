@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: vip_platform
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: secret
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+
+  identity-service:
+    build:
+      context: .
+      dockerfile: apps/identity-service/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgres://postgres:secret@postgres:5432/vip_platform
+      RABBITMQ_URL: amqp://admin:secret@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+    ports:
+      - '3001:3001'
+
+volumes:
+  pgdata:
