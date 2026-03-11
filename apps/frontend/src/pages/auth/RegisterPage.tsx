@@ -47,6 +47,7 @@ export const RegisterPage = () => {
           <p className="text-sm uppercase tracking-[0.3em] text-brand-orange">Start earning</p>
           <h2 className="mt-3 text-3xl font-semibold text-white">Create account</h2>
           <p className="mt-2 text-sm text-slate-400">A valid referral code is required before a new member can create an account.</p>
+          <p className="mt-1 text-xs text-slate-500">Bootstrap exception: if this is the first account in a fresh database, the referral field can stay empty.</p>
 
           <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
             <label className="block">
@@ -86,13 +87,12 @@ export const RegisterPage = () => {
               <input
                 value={form.referralCode}
                 onChange={(event) => setForm((current) => ({ ...current, referralCode: event.target.value }))}
-                required
                 className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-brand-orange/40"
-                placeholder="Referral code required"
+                placeholder="Referral code"
               />
             </label>
 
-            <Button type="submit" size="lg" className="w-full" disabled={submitting || !form.referralCode.trim()}>
+            <Button type="submit" size="lg" className="w-full" disabled={submitting}>
               {submitting ? 'Creating account...' : 'Create account'}
             </Button>
           </form>

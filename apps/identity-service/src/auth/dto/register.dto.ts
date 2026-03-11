@@ -1,4 +1,5 @@
-import { IsEmail, IsString, Length, Matches, MinLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsEmail, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -15,7 +16,16 @@ export class RegisterDto {
   @MinLength(8)
   password!: string;
 
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') {
+      return value;
+    }
+
+    const normalized = value.trim();
+    return normalized.length ? normalized : undefined;
+  })
+  @IsOptional()
   @IsString()
   @Length(4, 20)
-  referralCode!: string;
+  referralCode?: string;
 }

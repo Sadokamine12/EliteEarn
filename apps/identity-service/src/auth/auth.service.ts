@@ -62,6 +62,14 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto, meta: RequestMeta) {
+    const usersCountResult = await this.databaseService.query<{ count: string }>(
+      `
+        SELECT COUNT(*)::text AS count
+        FROM users
+      `,
+    );
+    const usersCount = Number(usersCountResult.rows[0]?.count ?? 0);
+
     const existingUser = await this.databaseService.query<{ id: string }>(
       `
         SELECT id
@@ -76,7 +84,15 @@ export class AuthService {
       throw new ConflictException('A user with this email or username already exists');
     }
 
-    const referredById = await this.resolveReferralCode(dto.referralCode.trim());
+    const normalizedReferralCode = dto.referralCode?.trim();
+    let referredById: string | null = null;
+
+    if (normalizedReferralCode) {
+      referredById = await this.resolveReferralCode(normalizedReferralCode);
+    } else if (usersCount > 0) {
+      throw new BadRequestException('Referral code is required');
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const user = await this.databaseService.transaction(async (client) => {
       const referralCode = await this.generateReferralCode(client);
