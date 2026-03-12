@@ -50,6 +50,22 @@ interface ReferralInviteRow {
   created_at: string;
 }
 
+interface ReferralLevelStatsRow {
+  level: string;
+  total_members: string;
+  active_members: string;
+}
+
+interface ReferralCommissionStatsRow {
+  level: string;
+  total_earned: string;
+}
+
+interface SettingRow {
+  key: string;
+  value: string;
+}
+
 interface RowQueryExecutor {
   query<T = unknown>(
     text: string,
@@ -491,9 +507,19 @@ export class UsersService {
   private async getReferralSummary(
     userId: string,
     client?: PoolClient,
-  ): Promise<{ count: number; users: Array<{ id: string; email: string; createdAt: string }> }> {
+  ): Promise<{
+    count: number;
+    users: Array<{ id: string; email: string; createdAt: string }>;
+    levels: Array<{
+      level: 1 | 2 | 3;
+      percent: number;
+      totalMembers: number;
+      activeMembers: number;
+      totalEarned: number;
+    }>;
+  }> {
     const executor = (client ?? this.databaseService) as RowQueryExecutor;
-    const result = await executor.query<ReferralInviteRow>(
+    const directInvitesResult = await executor.query<ReferralInviteRow>(
       `
         SELECT id, email, created_at
         FROM users
@@ -503,12 +529,91 @@ export class UsersService {
       [userId],
     );
 
+    const levelStatsResult = await executor.query<ReferralLevelStatsRow>(
+      `
+        WITH RECURSIVE downline AS (
+          SELECT id, 1 AS level
+          FROM users
+          WHERE referred_by = $1
+
+          UNION ALL
+
+          SELECT u.id, downline.level + 1
+          FROM users u
+          JOIN downline ON u.referred_by = downline.id
+          WHERE downline.level < 3
+        )
+        SELECT
+          downline.level::TEXT AS level,
+          COUNT(*)::TEXT AS total_members,
+          COUNT(*) FILTER (
+            WHERE EXISTS (
+              SELECT 1
+              FROM subscriptions s
+              WHERE s.user_id = downline.id
+                AND s.status = 'active'
+                AND s.expires_at > NOW()
+            )
+          )::TEXT AS active_members
+        FROM downline
+        GROUP BY downline.level
+      `,
+      [userId],
+    );
+
+    const commissionStatsResult = await executor.query<ReferralCommissionStatsRow>(
+      `
+        SELECT level::TEXT AS level, COALESCE(SUM(commission_amount), 0)::TEXT AS total_earned
+        FROM referral_commissions
+        WHERE beneficiary_user_id = $1
+        GROUP BY level
+      `,
+      [userId],
+    );
+
+    const ratesResult = await executor.query<SettingRow>(
+      `
+        SELECT key, value
+        FROM platform_settings
+        WHERE key IN (
+          'referral_level_1_percent',
+          'referral_level_2_percent',
+          'referral_level_3_percent'
+        )
+      `,
+    );
+
+    const levelStats = new Map(
+      levelStatsResult.rows.map((row) => [
+        Number(row.level),
+        {
+          totalMembers: Number(row.total_members),
+          activeMembers: Number(row.active_members),
+        },
+      ]),
+    );
+    const commissionStats = new Map(
+      commissionStatsResult.rows.map((row) => [Number(row.level), Number(row.total_earned)]),
+    );
+    const rates = Object.fromEntries(ratesResult.rows.map((row) => [row.key, Number(row.value)]));
+
     return {
-      count: result.rows.length,
-      users: result.rows.map((row) => ({
+      count: directInvitesResult.rows.length,
+      users: directInvitesResult.rows.map((row) => ({
         id: row.id,
         email: this.maskEmail(row.email),
         createdAt: row.created_at,
+      })),
+      levels: ([1, 2, 3] as const).map((level) => ({
+        level,
+        percent:
+          Number(
+            rates[`referral_level_${level}_percent` as const] ??
+              (level === 1 ? 10 : level === 2 ? 5 : 2),
+          ) || (level === 1 ? 10 : level === 2 ? 5 : 2),
+        totalMembers: levelStats.get(level)?.totalMembers ?? 0,
+        activeMembers: levelStats.get(level)?.activeMembers ?? 0,
+        totalEarned: commissionStats.get(level) ?? 0,
       })),
     };
   }
@@ -520,7 +625,17 @@ export class UsersService {
 
   private toUserResponse(
     row: UserWithBalanceRow,
-    referralSummary?: { count: number; users: Array<{ id: string; email: string; createdAt: string }> },
+    referralSummary?: {
+      count: number;
+      users: Array<{ id: string; email: string; createdAt: string }>;
+      levels: Array<{
+        level: 1 | 2 | 3;
+        percent: number;
+        totalMembers: number;
+        activeMembers: number;
+        totalEarned: number;
+      }>;
+    },
   ) {
     return {
       id: row.id,

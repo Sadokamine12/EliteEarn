@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '@app/database';
+import { applyReferralCommissions } from '@app/common';
 import {
   DepositApprovedEvent,
   NotifyUserEvent,
@@ -277,6 +278,14 @@ export class WalletService {
           Number(tier.daily_earnings ?? 0).toFixed(2),
         ],
       );
+
+      await applyReferralCommissions({
+        executor: client,
+        sourceUserId: userId,
+        subscriptionId: subscriptionResult.rows[0].id,
+        vipTierId,
+        sourceAmount: tierPrice,
+      });
 
       return {
         subscriptionId: subscriptionResult.rows[0].id,
@@ -874,47 +883,58 @@ export class WalletService {
   private async applyLocalDepositApproval(event: DepositApprovedEvent): Promise<void> {
     const tier = await this.getVipTier(event.vipTierId);
 
-    const existing = await this.databaseService.query<{ id: string }>(
-      `
-        SELECT id
-        FROM subscriptions
-        WHERE user_id = $1
-          AND vip_tier_id = $2
-          AND started_at >= NOW() - INTERVAL '1 minute'
-        ORDER BY created_at DESC
-        LIMIT 1
-      `,
-      [event.userId, event.vipTierId],
-    );
-
-    if (!existing.rows[0]) {
-      await this.databaseService.query(
+    await this.databaseService.transaction(async (client) => {
+      const existing = await client.query<{ id: string }>(
         `
-          INSERT INTO subscriptions (
-            user_id,
-            vip_tier_id,
-            status,
-            started_at,
-            expires_at,
-            daily_earnings
-          )
-          VALUES (
-            $1,
-            $2,
-            'active',
-            NOW(),
-            NOW() + ($3 || ' days')::INTERVAL,
-            $4
-          )
+          SELECT id
+          FROM subscriptions
+          WHERE user_id = $1
+            AND vip_tier_id = $2
+            AND started_at >= NOW() - INTERVAL '1 minute'
+          ORDER BY created_at DESC
+          LIMIT 1
         `,
-        [
-          event.userId,
-          event.vipTierId,
-          tier.duration_days ?? 30,
-          Number(tier.daily_earnings ?? 0).toFixed(2),
-        ],
+        [event.userId, event.vipTierId],
       );
-    }
+
+      if (!existing.rows[0]) {
+        const inserted = await client.query<{ id: string }>(
+          `
+            INSERT INTO subscriptions (
+              user_id,
+              vip_tier_id,
+              status,
+              started_at,
+              expires_at,
+              daily_earnings
+            )
+            VALUES (
+              $1,
+              $2,
+              'active',
+              NOW(),
+              NOW() + ($3 || ' days')::INTERVAL,
+              $4
+            )
+            RETURNING id
+          `,
+          [
+            event.userId,
+            event.vipTierId,
+            tier.duration_days ?? 30,
+            Number(tier.daily_earnings ?? 0).toFixed(2),
+          ],
+        );
+
+        await applyReferralCommissions({
+          executor: client,
+          sourceUserId: event.userId,
+          subscriptionId: inserted.rows[0].id,
+          vipTierId: event.vipTierId,
+          sourceAmount: Number(tier.price),
+        });
+      }
+    });
 
     await this.insertNotification(
       event.userId,

@@ -143,6 +143,29 @@ export const ProfilePage = () => {
               )}
             </div>
           </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            {(user?.referralSummary?.levels ?? []).map((level) => (
+              <div key={level.level} className="rounded-3xl border border-white/8 bg-white/5 p-4">
+                <p className="text-sm uppercase tracking-[0.2em] text-brand-cyan">Team LVL {level.level}</p>
+                <p className="mt-3 text-2xl font-semibold text-white">{level.percent}%</p>
+                <div className="mt-4 space-y-2 text-sm text-slate-300">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Total members</span>
+                    <span className="font-semibold text-white">{level.totalMembers}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Active VIP members</span>
+                    <span className="font-semibold text-white">{level.activeMembers}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Total earned</span>
+                    <span className="font-semibold text-brand-green">${level.totalEarned.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </Card>
 
         <Card className="p-5">

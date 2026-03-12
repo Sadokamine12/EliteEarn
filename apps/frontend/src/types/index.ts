@@ -17,6 +17,13 @@ export interface User {
       email: string;
       createdAt: string;
     }>;
+    levels: Array<{
+      level: 1 | 2 | 3;
+      percent: number;
+      totalMembers: number;
+      activeMembers: number;
+      totalEarned: number;
+    }>;
   };
   balance?: {
     available: number;

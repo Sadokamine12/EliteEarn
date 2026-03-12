@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DatabaseService } from '@app/database';
+import { applyReferralCommissions } from '@app/common';
 import {
   DepositApprovedEvent,
   NotifyUserEvent,
@@ -273,30 +274,41 @@ export class VipService {
       throw new NotFoundException('VIP tier not found for approved deposit');
     }
 
-    const result = await this.databaseService.query<SubscriptionRow>(
-      `
-        INSERT INTO subscriptions (
-          user_id,
-          vip_tier_id,
-          status,
-          started_at,
-          expires_at,
-          daily_earnings
-        )
-        VALUES (
-          $1,
-          $2,
-          'active',
-          NOW(),
-          NOW() + ($3 || ' days')::INTERVAL,
-          $4
-        )
-        RETURNING *, NULL::TEXT AS tier_name, NULL::TEXT AS tier_slug
-      `,
-      [event.userId, event.vipTierId, vipTier.duration_days, vipTier.daily_earnings],
-    );
+    const subscription = await this.databaseService.transaction(async (client) => {
+      const result = await client.query<SubscriptionRow>(
+        `
+          INSERT INTO subscriptions (
+            user_id,
+            vip_tier_id,
+            status,
+            started_at,
+            expires_at,
+            daily_earnings
+          )
+          VALUES (
+            $1,
+            $2,
+            'active',
+            NOW(),
+            NOW() + ($3 || ' days')::INTERVAL,
+            $4
+          )
+          RETURNING *, NULL::TEXT AS tier_name, NULL::TEXT AS tier_slug
+        `,
+        [event.userId, event.vipTierId, vipTier.duration_days, vipTier.daily_earnings],
+      );
 
-    const subscription = result.rows[0];
+      const inserted = result.rows[0];
+      await applyReferralCommissions({
+        executor: client,
+        sourceUserId: event.userId,
+        subscriptionId: inserted.id,
+        vipTierId: event.vipTierId,
+        sourceAmount: Number(vipTier.price),
+      });
+
+      return inserted;
+    });
 
     await this.rabbitMqService.publish(
       RABBITMQ_EXCHANGES.TASKS,
