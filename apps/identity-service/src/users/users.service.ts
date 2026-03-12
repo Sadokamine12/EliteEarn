@@ -20,6 +20,7 @@ import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 
 interface UserWithBalanceRow {
   id: string;
+  support_uid: string;
   username: string;
   email: string;
   referral_code: string;
@@ -27,6 +28,7 @@ interface UserWithBalanceRow {
   role: UserRole;
   status: UserStatus;
   welcome_bonus_claimed: boolean;
+  referral_team_bonus_claimed: boolean;
   created_at: string;
   updated_at: string;
   available: string | null;
@@ -64,6 +66,21 @@ interface ReferralCommissionStatsRow {
 interface SettingRow {
   key: string;
   value: string;
+}
+
+interface ReferralTeamBonusClaimRow {
+  id: string;
+  user_id: string;
+  username: string;
+  email: string;
+  target_count: number;
+  bonus_amount: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewed_by: string | null;
+  reviewed_by_username: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RowQueryExecutor {
@@ -120,7 +137,8 @@ export class UsersService {
           UPDATE users
           SET ${assignments.join(', ')}, updated_at = NOW()
           WHERE id = $${params.length}
-          RETURNING id, username, email, referral_code, referred_by, role, status, welcome_bonus_claimed, created_at, updated_at,
+          RETURNING id, username, email, referral_code, referred_by, role, status, welcome_bonus_claimed, referral_team_bonus_claimed, created_at, updated_at,
+                    support_uid,
                     NULL::TEXT AS available, NULL::TEXT AS pending, NULL::TEXT AS total_earned, NULL::TEXT AS this_month, NULL::TEXT AS balance_updated_at
         `,
         params,
@@ -179,6 +197,7 @@ export class UsersService {
       `
         SELECT
           u.id,
+          u.support_uid,
           u.username,
           u.email,
           u.referral_code,
@@ -186,6 +205,7 @@ export class UsersService {
           u.role,
           u.status,
           u.welcome_bonus_claimed,
+          u.referral_team_bonus_claimed,
           u.created_at,
           u.updated_at,
           b.available,
@@ -218,7 +238,8 @@ export class UsersService {
           UPDATE users
           SET status = $2, updated_at = NOW()
           WHERE id = $1
-          RETURNING id, username, email, referral_code, referred_by, role, status, welcome_bonus_claimed, created_at, updated_at,
+          RETURNING id, username, email, referral_code, referred_by, role, status, welcome_bonus_claimed, referral_team_bonus_claimed, created_at, updated_at,
+                    support_uid,
                     NULL::TEXT AS available, NULL::TEXT AS pending, NULL::TEXT AS total_earned, NULL::TEXT AS this_month, NULL::TEXT AS balance_updated_at
         `,
         [userId, dto.status],
@@ -377,6 +398,358 @@ export class UsersService {
     };
   }
 
+  async claimReferralTeamBonus(userId: string) {
+    const { target, amount } = await this.getReferralTeamBonusConfig();
+
+    const user = await this.databaseService.transaction(async (client) => {
+      const userResult = await client.query<{
+        id: string;
+        referral_team_bonus_claimed: boolean;
+      }>(
+        `
+          SELECT id, referral_team_bonus_claimed
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [userId],
+      );
+
+      const currentUser = userResult.rows[0];
+      if (!currentUser) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (currentUser.referral_team_bonus_claimed) {
+        throw new BadRequestException('Referral team giveaway has already been approved');
+      }
+
+      const directReferralsResult = await client.query<{ count: string }>(
+        `
+          SELECT COUNT(*)::TEXT AS count
+          FROM users
+          WHERE referred_by = $1
+        `,
+        [userId],
+      );
+      const totalReferrals = Number(directReferralsResult.rows[0]?.count ?? 0);
+
+      if (totalReferrals < target) {
+        throw new BadRequestException(`You need ${target} direct members before requesting this giveaway`);
+      }
+
+      const existingClaimResult = await client.query<{ status: 'pending' | 'approved' | 'rejected' }>(
+        `
+          SELECT status
+          FROM referral_team_bonus_claims
+          WHERE user_id = $1
+            AND target_count = $2
+            AND status IN ('pending', 'approved')
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [userId, target],
+      );
+
+      const existingClaim = existingClaimResult.rows[0];
+      if (existingClaim?.status === 'pending') {
+        throw new BadRequestException('Your giveaway request is already pending review');
+      }
+      if (existingClaim?.status === 'approved') {
+        throw new BadRequestException('Referral team giveaway has already been approved');
+      }
+
+      await client.query(
+        `
+          INSERT INTO referral_team_bonus_claims (
+            user_id,
+            target_count,
+            bonus_amount,
+            status
+          )
+          VALUES ($1, $2, $3, 'pending')
+        `,
+        [userId, target, amount.toFixed(2)],
+      );
+
+      const hydratedUser = await this.findUserWithBalance(userId, client);
+      const referrals = await this.getReferralSummary(userId, client);
+      return this.toUserResponse(hydratedUser, referrals);
+    });
+
+    const event: NotifyUserEvent = {
+      userId,
+      title: 'Giveaway Request Submitted',
+      message: `Your $${amount.toFixed(2)} referral team giveaway request is pending admin review.`,
+      type: 'referral_team_bonus_pending',
+    };
+    await this.rabbitMqService.publish(
+      RABBITMQ_EXCHANGES.NOTIFS,
+      RABBITMQ_QUEUES.NOTIFY_USER,
+      event,
+    );
+
+    return {
+      amount,
+      target,
+      user,
+    };
+  }
+
+  async listReferralTeamBonusClaims() {
+    const result = await this.databaseService.query<ReferralTeamBonusClaimRow>(
+      `
+        SELECT
+          claims.id,
+          claims.user_id,
+          claimant.username,
+          claimant.email,
+          claims.target_count,
+          claims.bonus_amount,
+          claims.status,
+          claims.reviewed_by,
+          reviewer.username AS reviewed_by_username,
+          claims.reviewed_at,
+          claims.created_at,
+          claims.updated_at
+        FROM referral_team_bonus_claims claims
+        JOIN users claimant ON claimant.id = claims.user_id
+        LEFT JOIN users reviewer ON reviewer.id = claims.reviewed_by
+        ORDER BY
+          CASE claims.status
+            WHEN 'pending' THEN 0
+            WHEN 'approved' THEN 1
+            ELSE 2
+          END,
+          claims.created_at DESC
+      `,
+    );
+
+    return result.rows.map((row) => this.toReferralTeamBonusClaimResponse(row));
+  }
+
+  async approveReferralTeamBonusClaim(claimId: string, reviewerId: string) {
+    const claim = await this.databaseService.transaction(async (client) => {
+      const claimResult = await client.query<ReferralTeamBonusClaimRow>(
+        `
+          SELECT
+            claims.id,
+            claims.user_id,
+            claimant.username,
+            claimant.email,
+            claims.target_count,
+            claims.bonus_amount,
+            claims.status,
+            claims.reviewed_by,
+            reviewer.username AS reviewed_by_username,
+            claims.reviewed_at,
+            claims.created_at,
+            claims.updated_at
+          FROM referral_team_bonus_claims claims
+          JOIN users claimant ON claimant.id = claims.user_id
+          LEFT JOIN users reviewer ON reviewer.id = claims.reviewed_by
+          WHERE claims.id = $1
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [claimId],
+      );
+
+      const claim = claimResult.rows[0];
+      if (!claim) {
+        throw new NotFoundException('Referral giveaway request not found');
+      }
+
+      if (claim.status !== 'pending') {
+        throw new BadRequestException('Only pending giveaway requests can be approved');
+      }
+
+      const userResult = await client.query<{ referral_team_bonus_claimed: boolean }>(
+        `
+          SELECT referral_team_bonus_claimed
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [claim.user_id],
+      );
+
+      const currentUser = userResult.rows[0];
+      if (!currentUser) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (currentUser.referral_team_bonus_claimed) {
+        throw new BadRequestException('Referral team giveaway has already been approved');
+      }
+
+      await client.query(
+        `
+          INSERT INTO balances (user_id)
+          VALUES ($1)
+          ON CONFLICT (user_id) DO NOTHING
+        `,
+        [claim.user_id],
+      );
+
+      await client.query(
+        `
+          UPDATE balances
+          SET
+            available = available + $2,
+            total_earned = total_earned + $2,
+            this_month = this_month + $2,
+            updated_at = NOW()
+          WHERE user_id = $1
+        `,
+        [claim.user_id, claim.bonus_amount],
+      );
+
+      await client.query(
+        `
+          UPDATE users
+          SET referral_team_bonus_claimed = true, updated_at = NOW()
+          WHERE id = $1
+        `,
+        [claim.user_id],
+      );
+
+      const updatedResult = await client.query<ReferralTeamBonusClaimRow>(
+        `
+          UPDATE referral_team_bonus_claims
+          SET
+            status = 'approved',
+            reviewed_by = $2,
+            reviewed_at = NOW(),
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING
+            id,
+            user_id,
+            $3::TEXT AS username,
+            $4::TEXT AS email,
+            target_count,
+            bonus_amount,
+            status,
+            reviewed_by,
+            $5::TEXT AS reviewed_by_username,
+            reviewed_at,
+            created_at,
+            updated_at
+        `,
+        [claim.id, reviewerId, claim.username, claim.email, 'admin'],
+      );
+
+      return updatedResult.rows[0];
+    });
+
+    const event: NotifyUserEvent = {
+      userId: claim.user_id,
+      title: 'Giveaway Approved',
+      message: `Your $${Number(claim.bonus_amount).toFixed(2)} referral team giveaway was approved and credited.`,
+      type: 'referral_team_bonus_approved',
+    };
+    await this.rabbitMqService.publish(
+      RABBITMQ_EXCHANGES.NOTIFS,
+      RABBITMQ_QUEUES.NOTIFY_USER,
+      event,
+    );
+
+    return this.toReferralTeamBonusClaimResponse(claim);
+  }
+
+  async rejectReferralTeamBonusClaim(claimId: string, reviewerId: string) {
+    const claim = await this.databaseService.transaction(async (client) => {
+      const claimResult = await client.query<ReferralTeamBonusClaimRow>(
+        `
+          SELECT
+            claims.id,
+            claims.user_id,
+            claimant.username,
+            claimant.email,
+            claims.target_count,
+            claims.bonus_amount,
+            claims.status,
+            claims.reviewed_by,
+            reviewer.username AS reviewed_by_username,
+            claims.reviewed_at,
+            claims.created_at,
+            claims.updated_at
+          FROM referral_team_bonus_claims claims
+          JOIN users claimant ON claimant.id = claims.user_id
+          LEFT JOIN users reviewer ON reviewer.id = claims.reviewed_by
+          WHERE claims.id = $1
+          LIMIT 1
+          FOR UPDATE
+        `,
+        [claimId],
+      );
+
+      const claim = claimResult.rows[0];
+      if (!claim) {
+        throw new NotFoundException('Referral giveaway request not found');
+      }
+
+      if (claim.status !== 'pending') {
+        throw new BadRequestException('Only pending giveaway requests can be rejected');
+      }
+
+      const reviewerResult = await client.query<{ username: string }>(
+        `
+          SELECT username
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+        `,
+        [reviewerId],
+      );
+
+      const updatedResult = await client.query<ReferralTeamBonusClaimRow>(
+        `
+          UPDATE referral_team_bonus_claims
+          SET
+            status = 'rejected',
+            reviewed_by = $2,
+            reviewed_at = NOW(),
+            updated_at = NOW()
+          WHERE id = $1
+          RETURNING
+            id,
+            user_id,
+            $3::TEXT AS username,
+            $4::TEXT AS email,
+            target_count,
+            bonus_amount,
+            status,
+            reviewed_by,
+            $5::TEXT AS reviewed_by_username,
+            reviewed_at,
+            created_at,
+            updated_at
+        `,
+        [claim.id, reviewerId, claim.username, claim.email, reviewerResult.rows[0]?.username ?? 'admin'],
+      );
+
+      return updatedResult.rows[0];
+    });
+
+    const event: NotifyUserEvent = {
+      userId: claim.user_id,
+      title: 'Giveaway Request Rejected',
+      message: 'Your referral team giveaway request was rejected. Contact support if you need clarification.',
+      type: 'referral_team_bonus_rejected',
+    };
+    await this.rabbitMqService.publish(
+      RABBITMQ_EXCHANGES.NOTIFS,
+      RABBITMQ_QUEUES.NOTIFY_USER,
+      event,
+    );
+
+    return this.toReferralTeamBonusClaimResponse(claim);
+  }
+
   private async findUserWithBalance(
     userId: string,
     client?: PoolClient,
@@ -386,6 +759,7 @@ export class UsersService {
       `
         SELECT
           u.id,
+          u.support_uid,
           u.username,
           u.email,
           u.referral_code,
@@ -393,6 +767,7 @@ export class UsersService {
           u.role,
           u.status,
           u.welcome_bonus_claimed,
+          u.referral_team_bonus_claimed,
           u.created_at,
           u.updated_at,
           b.available,
@@ -510,6 +885,17 @@ export class UsersService {
   ): Promise<{
     count: number;
     users: Array<{ id: string; email: string; createdAt: string }>;
+    bonus: {
+      targetCount: number;
+      currentCount: number;
+      amount: number;
+      eligible: boolean;
+      pending: boolean;
+      claimed: boolean;
+      status: 'locked' | 'eligible' | 'pending' | 'approved' | 'rejected';
+      requestedAt: string | null;
+      reviewedAt: string | null;
+    };
     levels: Array<{
       level: 1 | 2 | 3;
       percent: number;
@@ -578,9 +964,27 @@ export class UsersService {
         WHERE key IN (
           'referral_level_1_percent',
           'referral_level_2_percent',
-          'referral_level_3_percent'
+          'referral_level_3_percent',
+          'referral_team_bonus_target',
+          'referral_team_bonus_amount'
         )
       `,
+    );
+
+    const bonusClaimResult = await executor.query<{
+      id: string;
+      status: 'pending' | 'approved' | 'rejected';
+      reviewed_at: string | null;
+      created_at: string;
+    }>(
+      `
+        SELECT id, status, reviewed_at, created_at
+        FROM referral_team_bonus_claims
+        WHERE user_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+      `,
+      [userId],
     );
 
     const levelStats = new Map(
@@ -596,9 +1000,13 @@ export class UsersService {
       commissionStatsResult.rows.map((row) => [Number(row.level), Number(row.total_earned)]),
     );
     const rates = Object.fromEntries(ratesResult.rows.map((row) => [row.key, Number(row.value)]));
+    const latestBonusClaim = bonusClaimResult.rows[0];
+    const directReferralCount = directInvitesResult.rows.length;
+    const targetCount = Number(rates.referral_team_bonus_target ?? 5) || 5;
+    const bonusAmount = Number(rates.referral_team_bonus_amount ?? 500) || 500;
 
     return {
-      count: directInvitesResult.rows.length,
+      count: directReferralCount,
       users: directInvitesResult.rows.map((row) => ({
         id: row.id,
         email: this.maskEmail(row.email),
@@ -615,7 +1023,40 @@ export class UsersService {
         activeMembers: levelStats.get(level)?.activeMembers ?? 0,
         totalEarned: commissionStats.get(level) ?? 0,
       })),
+      bonus: {
+        targetCount,
+        currentCount: directReferralCount,
+        amount: bonusAmount,
+        eligible:
+          directReferralCount >= targetCount &&
+          (!latestBonusClaim || latestBonusClaim.status === 'rejected'),
+        pending: latestBonusClaim?.status === 'pending',
+        claimed: latestBonusClaim?.status === 'approved',
+        status: latestBonusClaim?.status ?? (directReferralCount >= targetCount ? 'eligible' : 'locked'),
+        requestedAt: latestBonusClaim?.created_at ?? null,
+        reviewedAt: latestBonusClaim?.reviewed_at ?? null,
+      },
     };
+  }
+
+  private async getReferralTeamBonusConfig() {
+    const settingsResult = await this.databaseService.query<SettingRow>(
+      `
+        SELECT key, value
+        FROM platform_settings
+        WHERE key IN ('referral_team_bonus_target', 'referral_team_bonus_amount')
+      `,
+    );
+
+    const settings = Object.fromEntries(settingsResult.rows.map((row) => [row.key, row.value]));
+    const target = Number(settings.referral_team_bonus_target ?? 5);
+    const amount = Number(settings.referral_team_bonus_amount ?? 500);
+
+    if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Referral team giveaway settings are invalid');
+    }
+
+    return { target, amount };
   }
 
   private maskEmail(email: string): string {
@@ -623,11 +1064,39 @@ export class UsersService {
     return `${visible}*****`;
   }
 
+  private toReferralTeamBonusClaimResponse(row: ReferralTeamBonusClaimRow) {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      username: row.username,
+      email: row.email,
+      targetCount: Number(row.target_count),
+      bonusAmount: Number(row.bonus_amount),
+      status: row.status,
+      reviewedBy: row.reviewed_by,
+      reviewedByUsername: row.reviewed_by_username,
+      reviewedAt: row.reviewed_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
   private toUserResponse(
     row: UserWithBalanceRow,
     referralSummary?: {
       count: number;
       users: Array<{ id: string; email: string; createdAt: string }>;
+      bonus: {
+        targetCount: number;
+        currentCount: number;
+        amount: number;
+        eligible: boolean;
+        pending: boolean;
+        claimed: boolean;
+        status: 'locked' | 'eligible' | 'pending' | 'approved' | 'rejected';
+        requestedAt: string | null;
+        reviewedAt: string | null;
+      };
       levels: Array<{
         level: 1 | 2 | 3;
         percent: number;
@@ -639,6 +1108,7 @@ export class UsersService {
   ) {
     return {
       id: row.id,
+      supportUid: row.support_uid,
       username: row.username,
       email: row.email,
       referralCode: row.referral_code,
@@ -646,6 +1116,7 @@ export class UsersService {
       role: row.role,
       status: row.status,
       welcomeBonusClaimed: row.welcome_bonus_claimed,
+      referralTeamBonusClaimed: row.referral_team_bonus_claimed,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       balance: {

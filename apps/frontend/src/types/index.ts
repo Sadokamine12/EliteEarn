@@ -1,5 +1,6 @@
 export interface User {
   id: string;
+  supportUid: string;
   username: string;
   email: string;
   referralCode: string;
@@ -7,6 +8,7 @@ export interface User {
   role: 'user' | 'admin';
   status: 'active' | 'banned';
   welcomeBonusClaimed: boolean;
+  referralTeamBonusClaimed?: boolean;
   createdAt: string;
   updatedAt: string;
   referralActivatedVip?: boolean;
@@ -17,6 +19,17 @@ export interface User {
       email: string;
       createdAt: string;
     }>;
+    bonus: {
+      targetCount: number;
+      currentCount: number;
+      amount: number;
+      eligible: boolean;
+      pending: boolean;
+      claimed: boolean;
+      status: 'locked' | 'eligible' | 'pending' | 'approved' | 'rejected';
+      requestedAt: string | null;
+      reviewedAt: string | null;
+    };
     levels: Array<{
       level: 1 | 2 | 3;
       percent: number;
@@ -169,6 +182,21 @@ export interface PlatformSetting {
   key: string;
   value: string;
   updatedAt?: string;
+}
+
+export interface ReferralTeamBonusClaim {
+  id: string;
+  userId: string;
+  username: string;
+  email: string;
+  targetCount: number;
+  bonusAmount: number;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy: string | null;
+  reviewedByUsername: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PaginatedResponse<T> {

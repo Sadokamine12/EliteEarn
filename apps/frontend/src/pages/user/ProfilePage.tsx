@@ -15,6 +15,7 @@ export const ProfilePage = () => {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isSubmittingBonusClaim, setIsSubmittingBonusClaim] = useState(false);
 
   useEffect(() => {
     setUsername(user?.username ?? '');
@@ -56,6 +57,32 @@ export const ProfilePage = () => {
       toast.success('Referral code copied');
     } catch {
       toast.error('Copy failed');
+    }
+  };
+
+  const copySupportUid = async () => {
+    if (!user?.supportUid) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(user.supportUid);
+      toast.success('Support UID copied');
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
+  const submitReferralTeamBonusClaim = async () => {
+    setIsSubmittingBonusClaim(true);
+    try {
+      const response = await authApi.claimReferralTeamBonus();
+      updateUser(response.data.user);
+      toast.success(`$${response.data.amount.toFixed(2)} giveaway request submitted`);
+    } catch (error) {
+      toast.error(extractErrorMessage(error));
+    } finally {
+      setIsSubmittingBonusClaim(false);
     }
   };
 
@@ -105,6 +132,15 @@ export const ProfilePage = () => {
           <p className="text-sm uppercase tracking-[0.2em] text-brand-orange">Referral</p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
+              <p className="text-sm text-slate-400">Support UID</p>
+              <p className="mt-2 text-xl font-semibold text-white">{user?.supportUid ?? '--'}</p>
+              <p className="mt-2 text-sm text-slate-400">Share this 6-digit ID with support so your account can be identified quickly.</p>
+              <Button className="mt-4" variant="secondary" size="sm" onClick={copySupportUid}>
+                <Copy className="h-4 w-4" />
+                Copy UID
+              </Button>
+            </div>
+            <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
               <p className="text-sm text-slate-400">Your referral code</p>
               <p className="mt-2 text-xl font-semibold text-white">{user?.referralCode ?? '--'}</p>
               <Button className="mt-4" variant="secondary" size="sm" onClick={copyReferralCode}>
@@ -141,6 +177,45 @@ export const ProfilePage = () => {
                   </div>
                 ))
               )}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-3xl border border-white/8 bg-white/5 p-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm uppercase tracking-[0.2em] text-brand-green">Team giveaway</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  ${user?.referralSummary?.bonus.amount.toFixed(2) ?? '0.00'}
+                </p>
+                <p className="mt-2 text-sm text-slate-400">
+                  {user?.referralSummary?.bonus.currentCount ?? 0} / {user?.referralSummary?.bonus.targetCount ?? 5} direct members
+                </p>
+              </div>
+              <div className="space-y-2 text-right text-sm text-slate-400">
+                <p>Status: <span className="font-semibold capitalize text-white">{user?.referralSummary?.bonus.status ?? 'locked'}</span></p>
+                {user?.referralSummary?.bonus.requestedAt ? (
+                  <p>Requested {formatDate(user.referralSummary.bonus.requestedAt, 'MMM d, yyyy')}</p>
+                ) : null}
+                {user?.referralSummary?.bonus.reviewedAt ? (
+                  <p>Reviewed {formatDate(user.referralSummary.bonus.reviewedAt, 'MMM d, yyyy')}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/8 bg-white/5 p-4 text-sm text-slate-300">
+              This bonus is not credited automatically. Once you reach the target, submit it for admin review.
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button
+                onClick={() => void submitReferralTeamBonusClaim()}
+                disabled={
+                  !user?.referralSummary?.bonus.eligible ||
+                  isSubmittingBonusClaim
+                }
+              >
+                {isSubmittingBonusClaim ? 'Submitting...' : 'Send $500 claim for review'}
+              </Button>
             </div>
           </div>
 
