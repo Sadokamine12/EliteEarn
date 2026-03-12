@@ -10,7 +10,12 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PoolClient } from 'pg';
 import { DatabaseService } from '@app/database';
 import { UserRole, UserStatus } from '@app/common';
-import { RabbitMqService } from '@app/rabbitmq';
+import {
+  NotifyUserEvent,
+  RABBITMQ_EXCHANGES,
+  RABBITMQ_QUEUES,
+  RabbitMqService,
+} from '@app/rabbitmq';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
@@ -37,6 +42,7 @@ interface UserRecord {
   role: UserRole;
   status: UserStatus;
   welcome_bonus_claimed: boolean;
+  referral_team_bonus_claimed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -94,7 +100,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
-    const user = await this.databaseService.transaction(async (client) => {
+    const { user, teamBonusAwarded } = await this.databaseService.transaction(async (client) => {
       const referralCode = await this.generateReferralCode(client);
       const userResult = await client.query<UserRecord>(
         `
@@ -128,8 +134,29 @@ export class AuthService {
         [createdUser.id, 0],
       );
 
-      return createdUser;
+      const teamBonusAwarded = referredById
+        ? await this.applyReferralTeamBonusIfEligible(client, referredById)
+        : 0;
+
+      return {
+        user: createdUser,
+        teamBonusAwarded,
+      };
     });
+
+    if (referredById && teamBonusAwarded > 0) {
+      const event: NotifyUserEvent = {
+        userId: referredById,
+        title: 'Referral Giveaway Unlocked!',
+        message: `You invited 5 members and received $${teamBonusAwarded.toFixed(2)}.`,
+        type: 'referral_team_bonus',
+      };
+      await this.rabbitMqService.publish(
+        RABBITMQ_EXCHANGES.NOTIFS,
+        RABBITMQ_QUEUES.NOTIFY_USER,
+        event,
+      );
+    }
 
     const session = await this.createRefreshSession(user, meta);
 
@@ -313,6 +340,90 @@ export class AuthService {
     }
 
     throw new ConflictException('Failed to generate a unique referral code');
+  }
+
+  private async applyReferralTeamBonusIfEligible(
+    client: PoolClient,
+    referrerUserId: string,
+  ): Promise<number> {
+    const settingsResult = await client.query<{ key: string; value: string }>(
+      `
+        SELECT key, value
+        FROM platform_settings
+        WHERE key IN ('referral_team_bonus_target', 'referral_team_bonus_amount')
+      `,
+    );
+
+    const settings = Object.fromEntries(settingsResult.rows.map((row) => [row.key, row.value]));
+    const target = Number(settings.referral_team_bonus_target ?? 5);
+    const amount = Number(settings.referral_team_bonus_amount ?? 500);
+
+    if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(amount) || amount <= 0) {
+      return 0;
+    }
+
+    const userResult = await client.query<{ referral_team_bonus_claimed: boolean }>(
+      `
+        SELECT referral_team_bonus_claimed
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        FOR UPDATE
+      `,
+      [referrerUserId],
+    );
+
+    const referrer = userResult.rows[0];
+    if (!referrer || referrer.referral_team_bonus_claimed) {
+      return 0;
+    }
+
+    const referralsResult = await client.query<{ count: string }>(
+      `
+        SELECT COUNT(*)::TEXT AS count
+        FROM users
+        WHERE referred_by = $1
+      `,
+      [referrerUserId],
+    );
+
+    const totalReferrals = Number(referralsResult.rows[0]?.count ?? 0);
+    if (totalReferrals < target) {
+      return 0;
+    }
+
+    await client.query(
+      `
+        INSERT INTO balances (user_id)
+        VALUES ($1)
+        ON CONFLICT (user_id) DO NOTHING
+      `,
+      [referrerUserId],
+    );
+
+    await client.query(
+      `
+        UPDATE balances
+        SET
+          available = available + $2,
+          total_earned = total_earned + $2,
+          this_month = this_month + $2,
+          updated_at = NOW()
+        WHERE user_id = $1
+      `,
+      [referrerUserId, amount],
+    );
+
+    await client.query(
+      `
+        UPDATE users
+        SET referral_team_bonus_claimed = true, updated_at = NOW()
+        WHERE id = $1
+      `,
+      [referrerUserId],
+    );
+
+    return amount;
   }
 
   private async signAccessToken(user: UserRecord): Promise<string> {
