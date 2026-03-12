@@ -8,4 +8,6 @@ export const authApi = {
   updateMe: (data: UpdateProfileDto) => api.patch<User>('/api/identity/users/me', data),
   claimWelcomeBonus: () =>
     api.post<{ amount: number; user: User }>('/api/identity/users/me/claim-welcome-bonus'),
+  claimReferralTeamBonus: () =>
+    api.post<{ amount: number; target: number; user: User }>('/api/identity/users/me/claim-referral-team-bonus'),
 };
