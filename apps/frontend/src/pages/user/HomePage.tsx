@@ -184,7 +184,9 @@ export const HomePage = () => {
               onClick={() => void handleReferralGiveawayClaim()}
               disabled={!user?.referralSummary?.bonus.eligible || submittingGiveawayClaim}
             >
-              {submittingGiveawayClaim ? 'Submitting...' : 'Send $500 claim for review'}
+              {submittingGiveawayClaim
+                ? 'Submitting...'
+                : `Send $${(user?.referralSummary?.bonus.amount ?? 0).toFixed(2)} claim for review`}
             </Button>
           </div>
         </Card>
