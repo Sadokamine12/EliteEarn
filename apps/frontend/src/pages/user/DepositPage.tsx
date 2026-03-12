@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, Copy } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { MobileLayout } from '@/components/layout/MobileLayout';
 import { TopBar } from '@/components/layout/TopBar';
 import { DepositModal } from '@/components/wallet/DepositModal';
@@ -33,6 +34,20 @@ export const DepositPage = () => {
     void fetchDepositWallets();
   }, [fetchDepositWallets, fetchHistory, fetchStoreData]);
 
+  const copyAddress = async (address?: string) => {
+    if (!address) {
+      toast.error('Address not configured');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(address);
+      toast.success('Deposit address copied');
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
   const featuredTiers = useMemo(() => tiers.slice(0, 3), [tiers]);
 
   return (
@@ -57,8 +72,16 @@ export const DepositPage = () => {
             ['BEP20', depositWallets?.USDT_BEP20],
           ] as const).map(([label, address]) => (
             <Card key={label} className="p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-brand-cyan">USDT {label}</p>
-              <p className="mt-3 break-all text-sm text-white">{address || 'Not configured'}</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-brand-cyan">USDT {label}</p>
+                  <p className="mt-3 break-all text-sm text-white">{address || 'Not configured'}</p>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => void copyAddress(address)}>
+                  <Copy className="h-4 w-4" />
+                  Copy
+                </Button>
+              </div>
             </Card>
           ))}
         </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Coins } from 'lucide-react';
+import { Coins, Copy } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency } from '@/lib/utils';
@@ -23,7 +24,6 @@ export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) =>
   const fetchStoreData = useVipStore((state) => state.fetchStoreData);
   const [crypto, setCrypto] = useState<'USDT_ERC20' | 'USDT_TRC20' | 'USDT_BEP20'>('USDT_BEP20');
   const [txHash, setTxHash] = useState('');
-  const [proofUrl, setProofUrl] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const availableBalance = balance?.available ?? 0;
   const canActivateFromBalance = Boolean(vipTier) && availableBalance >= (vipTier?.price ?? 0);
@@ -32,9 +32,22 @@ export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) =>
     if (!isOpen) {
       setCrypto('USDT_BEP20');
       setTxHash('');
-      setProofUrl('');
     }
   }, [isOpen]);
+
+  const copyAddress = async (address?: string) => {
+    if (!address) {
+      toast.error('Address not configured');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(address);
+      toast.success('Deposit address copied');
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
 
   const handleSubmit = async () => {
     if (!vipTier) {
@@ -47,7 +60,6 @@ export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) =>
         amount: vipTier.price,
         crypto,
         txHash: txHash || undefined,
-        proofUrl: proofUrl || undefined,
         vipTierId: vipTier.id,
       });
       onClose();
@@ -110,20 +122,31 @@ export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) =>
 
           <div className="grid gap-3 sm:grid-cols-2">
             {(['USDT_ERC20', 'USDT_TRC20', 'USDT_BEP20'] as const).map((option) => (
-              <button
+              <div
                 key={option}
-                type="button"
-                onClick={() => setCrypto(option)}
                 className={`rounded-3xl border px-4 py-4 text-left transition ${
                   crypto === option
                     ? 'border-brand-orange/40 bg-brand-orange/10 text-white'
                     : 'border-white/10 bg-white/5 text-slate-300'
                 }`}
               >
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Network</p>
-                <p className="mt-1 font-semibold">{option.replace('USDT_', 'USDT ').replace('_', ' ')}</p>
-                <p className="mt-2 break-all text-xs text-slate-400">{depositWallets?.[option] || 'Address not configured'}</p>
-              </button>
+                <div className="flex items-start justify-between gap-3">
+                  <button type="button" onClick={() => setCrypto(option)} className="flex-1 text-left">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Network</p>
+                    <p className="mt-1 font-semibold">{option.replace('USDT_', 'USDT ').replace('_', ' ')}</p>
+                    <p className="mt-2 break-all text-xs text-slate-400">{depositWallets?.[option] || 'Address not configured'}</p>
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0"
+                    onClick={() => void copyAddress(depositWallets?.[option])}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
 
@@ -133,16 +156,6 @@ export const DepositModal = ({ isOpen, vipTier, onClose }: DepositModalProps) =>
               value={txHash}
               onChange={(event) => setTxHash(event.target.value)}
               placeholder="Paste the blockchain transaction hash"
-              className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-brand-orange/40"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-300">Proof URL</span>
-            <input
-              value={proofUrl}
-              onChange={(event) => setProofUrl(event.target.value)}
-              placeholder="Optional screenshot or explorer link"
               className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-brand-orange/40"
             />
           </label>
