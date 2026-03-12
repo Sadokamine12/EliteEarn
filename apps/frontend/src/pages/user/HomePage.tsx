@@ -32,6 +32,7 @@ export const HomePage = () => {
   const activePromotion = usePromotionStore((state) => state.activePromotion);
   const fetchPromotion = usePromotionStore((state) => state.fetchPromotion);
   const [claimingBonus, setClaimingBonus] = useState(false);
+  const [submittingGiveawayClaim, setSubmittingGiveawayClaim] = useState(false);
 
   useEffect(() => {
     void fetchBalance();
@@ -51,6 +52,20 @@ export const HomePage = () => {
       toast.error(extractErrorMessage(error));
     } finally {
       setClaimingBonus(false);
+    }
+  };
+
+  const handleReferralGiveawayClaim = async () => {
+    setSubmittingGiveawayClaim(true);
+
+    try {
+      const response = await authApi.claimReferralTeamBonus();
+      updateUser(response.data.user);
+      toast.success(`$${response.data.amount.toFixed(2)} giveaway request submitted`);
+    } catch (error) {
+      toast.error(extractErrorMessage(error));
+    } finally {
+      setSubmittingGiveawayClaim(false);
     }
   };
 
@@ -125,6 +140,55 @@ export const HomePage = () => {
           </Card>
         </section>
       ) : null}
+
+      <section className="px-4 pt-4">
+        <Card className="overflow-hidden bg-gradient-to-r from-brand-orange/15 via-brand-yellow/10 to-white/5 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-amber-200">Referral giveaway</p>
+              <h3 className="mt-2 text-xl font-semibold text-white">$500 team reward</h3>
+              <p className="mt-1 text-sm text-slate-300">
+                Reach {user?.referralSummary?.bonus.targetCount ?? 5} direct members, then submit the giveaway for admin review.
+              </p>
+            </div>
+            <div className="rounded-full bg-white/10 p-3 text-brand-yellow">
+              <Trophy className="h-6 w-6" />
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Progress</p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {user?.referralSummary?.bonus.currentCount ?? 0}/{user?.referralSummary?.bonus.targetCount ?? 5}
+              </p>
+            </div>
+            <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Status</p>
+              <p className="mt-2 text-2xl font-semibold capitalize text-white">
+                {user?.referralSummary?.bonus.status ?? 'locked'}
+              </p>
+            </div>
+            <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Amount</p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                ${user?.referralSummary?.bonus.amount.toFixed(2) ?? '500.00'}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <Button
+              size="lg"
+              className="w-full sm:w-auto"
+              onClick={() => void handleReferralGiveawayClaim()}
+              disabled={!user?.referralSummary?.bonus.eligible || submittingGiveawayClaim}
+            >
+              {submittingGiveawayClaim ? 'Submitting...' : 'Send $500 claim for review'}
+            </Button>
+          </div>
+        </Card>
+      </section>
 
       <section className="grid grid-cols-2 gap-3 p-4">
         {quickActions.map((action) => {
