@@ -40,10 +40,33 @@ export class UsersController {
     return this.usersService.claimWelcomeBonus(user.sub);
   }
 
+  @Post('me/claim-referral-team-bonus')
+  claimReferralTeamBonus(@CurrentUser() user: { sub: string }) {
+    return this.usersService.claimReferralTeamBonus(user.sub);
+  }
+
   @Get()
   @Roles('admin')
   listUsers(@Query() query: ListUsersQueryDto) {
     return this.usersService.listUsers(query);
+  }
+
+  @Get('referral-team-bonus-claims')
+  @Roles('admin')
+  listReferralTeamBonusClaims() {
+    return this.usersService.listReferralTeamBonusClaims();
+  }
+
+  @Patch('referral-team-bonus-claims/:id/approve')
+  @Roles('admin')
+  approveReferralTeamBonusClaim(@Param('id') id: string, @CurrentUser() user: { sub: string }) {
+    return this.usersService.approveReferralTeamBonusClaim(id, user.sub);
+  }
+
+  @Patch('referral-team-bonus-claims/:id/reject')
+  @Roles('admin')
+  rejectReferralTeamBonusClaim(@Param('id') id: string, @CurrentUser() user: { sub: string }) {
+    return this.usersService.rejectReferralTeamBonusClaim(id, user.sub);
   }
 
   @Get(':id')

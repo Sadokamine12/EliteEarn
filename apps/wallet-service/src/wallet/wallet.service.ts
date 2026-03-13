@@ -664,6 +664,10 @@ export class WalletService {
       [userId],
     );
 
+    const referralWithdrawalRequired = await this.getBooleanSetting(
+      'referral_withdrawal_required',
+      true,
+    );
     const withdrawalIntervalDays = await this.getNumericSetting('withdrawal_interval_days', 30);
     const latestWithdrawalResult = await this.databaseService.query<RecentWithdrawalRow>(
       `
@@ -692,9 +696,12 @@ export class WalletService {
       !nextWithdrawalAt || new Date(nextWithdrawalAt).getTime() <= Date.now();
     const withdrawalFeePercent = await this.getNumericSetting('withdrawal_fee_percent', 20);
     const withdrawalProcessingHours = await this.getNumericSetting('withdrawal_processing_hours', 72);
+    const referralRequirementsMet =
+      !referralWithdrawalRequired || (usedReferral && referralActivatedVip);
 
     return {
       hasVIP,
+      referralWithdrawalRequired,
       usedReferral,
       referralActivatedVip,
       withdrawalFrequencyMet,
@@ -703,7 +710,7 @@ export class WalletService {
       withdrawalProcessingHours,
       recentWithdrawalAt,
       nextWithdrawalAt,
-      allMet: hasVIP && usedReferral && referralActivatedVip && withdrawalFrequencyMet,
+      allMet: hasVIP && referralRequirementsMet && withdrawalFrequencyMet,
     };
   }
 
@@ -878,6 +885,27 @@ export class WalletService {
 
     const parsed = Number(result.rows[0]?.value ?? fallback);
     return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  private async getBooleanSetting(key: string, fallback: boolean): Promise<boolean> {
+    const result = await this.databaseService.query<{ value: string }>(
+      `
+        SELECT value
+        FROM platform_settings
+        WHERE key = $1
+        LIMIT 1
+      `,
+      [key],
+    );
+
+    const value = result.rows[0]?.value?.trim().toLowerCase();
+    if (value === 'true') {
+      return true;
+    }
+    if (value === 'false') {
+      return false;
+    }
+    return fallback;
   }
 
   private async applyLocalDepositApproval(event: DepositApprovedEvent): Promise<void> {

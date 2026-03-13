@@ -22,7 +22,16 @@ export const SettingsPage = () => {
     [settings],
   );
   const generalSettings = useMemo(
-    () => settings.filter((setting) => !['withdrawal_interval_days', 'withdrawal_fee_percent', 'withdrawal_processing_hours'].includes(setting.key)),
+    () =>
+      settings.filter(
+        (setting) =>
+          ![
+            'withdrawal_interval_days',
+            'withdrawal_fee_percent',
+            'withdrawal_processing_hours',
+            'referral_withdrawal_required',
+          ].includes(setting.key),
+      ),
     [settings],
   );
 
@@ -52,6 +61,10 @@ export const SettingsPage = () => {
     settings.find((setting) => setting.key === 'withdrawal_fee_percent')?.value ?? '20';
   const withdrawalProcessingHoursValue =
     settings.find((setting) => setting.key === 'withdrawal_processing_hours')?.value ?? '72';
+  const referralWithdrawalRequired =
+    (settings.find((setting) => setting.key === 'referral_withdrawal_required')?.value
+      ?.trim()
+      .toLowerCase() ?? 'true') === 'true';
 
   return (
     <AdminLayout>
@@ -102,6 +115,22 @@ export const SettingsPage = () => {
               </p>
             </label>
           </div>
+          <label className="mt-6 flex items-start justify-between gap-4 rounded-3xl border border-white/10 bg-white/5 px-4 py-4">
+            <div>
+              <span className="block text-sm font-medium text-slate-300">Require referral unlock for withdrawals</span>
+              <p className="mt-2 text-xs text-slate-500">
+                When disabled, referral-based withdrawal checks are removed from the user withdraw page and no longer block payouts.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={referralWithdrawalRequired}
+              onChange={(event) =>
+                upsertSetting('referral_withdrawal_required', event.target.checked ? 'true' : 'false')
+              }
+              className="mt-1 h-5 w-5 rounded border-white/20 bg-white/5 text-brand-orange focus:ring-brand-orange/40"
+            />
+          </label>
         </Card>
 
         <Card className="p-5">
@@ -110,20 +139,20 @@ export const SettingsPage = () => {
             {generalSettings.map((setting) => {
               const index = settings.findIndex((item) => item.key === setting.key);
               return (
-              <label key={setting.key} className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-300">{setting.key}</span>
-                <input
-                  value={setting.value}
-                  onChange={(event) =>
-                    setSettings((current) =>
-                      current.map((item, currentIndex) =>
-                        currentIndex === index ? { ...item, value: event.target.value } : item,
-                      ),
-                    )
-                  }
-                  className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-brand-orange/40"
-                />
-              </label>
+                <label key={setting.key} className="block">
+                  <span className="mb-2 block text-sm font-medium text-slate-300">{setting.key}</span>
+                  <input
+                    value={setting.value}
+                    onChange={(event) =>
+                      setSettings((current) =>
+                        current.map((item, currentIndex) =>
+                          currentIndex === index ? { ...item, value: event.target.value } : item,
+                        ),
+                      )
+                    }
+                    className="w-full rounded-3xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none placeholder:text-slate-500 focus:border-brand-orange/40"
+                  />
+                </label>
               );
             })}
           </div>

@@ -260,6 +260,7 @@ export interface WithdrawDto {
 
 export interface WithdrawalEligibility {
   hasVIP: boolean;
+  referralWithdrawalRequired: boolean;
   usedReferral: boolean;
   referralActivatedVip: boolean;
   withdrawalFrequencyMet: boolean;

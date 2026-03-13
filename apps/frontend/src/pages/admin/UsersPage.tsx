@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { Ban, Wallet } from 'lucide-react';
 import { adminApi } from '@/api/admin.api';
@@ -8,23 +8,38 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Modal } from '@/components/ui/Modal';
 import { extractErrorMessage, formatCurrency, formatDate } from '@/lib/utils';
-import type { PaginatedResponse, User } from '@/types';
+import type { PaginatedResponse, PlatformSetting, ReferralTeamBonusClaim, User } from '@/types';
 
 type BalanceField = 'available' | 'pending' | 'total_earned' | 'this_month';
 type BalanceOperation = 'credit' | 'debit' | 'set';
 
 export const UsersPage = () => {
   const [response, setResponse] = useState<PaginatedResponse<User>>({ data: [], page: 1, limit: 20, total: 0 });
+  const [bonusClaims, setBonusClaims] = useState<ReferralTeamBonusClaim[]>([]);
+  const [settings, setSettings] = useState<PlatformSetting[]>([]);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [field, setField] = useState<BalanceField>('available');
   const [operation, setOperation] = useState<BalanceOperation>('credit');
   const [amount, setAmount] = useState('0');
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const referralTeamBonusAmount = useMemo(() => {
+    const amount = Number(
+      settings.find((setting) => setting.key === 'referral_team_bonus_amount')?.value ?? '500',
+    );
+    return Number.isFinite(amount) ? amount : 500;
+  }, [settings]);
+
   const loadUsers = async () => {
     try {
-      const result = await adminApi.getUsers({ page: 1, limit: 20 });
-      setResponse(result.data);
+      const [usersResult, claimsResult, settingsResult] = await Promise.all([
+        adminApi.getUsers({ page: 1, limit: 20 }),
+        adminApi.getReferralTeamBonusClaims(),
+        adminApi.getSettings(),
+      ]);
+      setResponse(usersResult.data);
+      setBonusClaims(claimsResult.data);
+      setSettings(settingsResult.data);
     } catch (error) {
       toast.error(extractErrorMessage(error));
     }
@@ -76,8 +91,90 @@ export const UsersPage = () => {
     }
   };
 
+  const reviewBonusClaim = async (claimId: string, action: 'approve' | 'reject') => {
+    setBusyId(claimId);
+    try {
+      if (action === 'approve') {
+        await adminApi.approveReferralTeamBonusClaim(claimId);
+      } else {
+        await adminApi.rejectReferralTeamBonusClaim(claimId);
+      }
+      toast.success(`Giveaway request ${action}d`);
+      await loadUsers();
+    } catch (error) {
+      toast.error(extractErrorMessage(error));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <AdminLayout>
+      <Card className="overflow-hidden">
+        <div className="border-b border-white/8 px-5 py-4">
+          <h2 className="text-xl font-semibold text-white">Referral giveaway claims</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            Review the {formatCurrency(referralTeamBonusAmount)} milestone requests before any credit is applied.
+          </p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-white/5 text-slate-400">
+              <tr>
+                <th className="px-5 py-3 font-medium">User</th>
+                <th className="px-5 py-3 font-medium">Target</th>
+                <th className="px-5 py-3 font-medium">Amount</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Requested</th>
+                <th className="px-5 py-3 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bonusClaims.length === 0 ? (
+                <tr className="border-t border-white/6">
+                  <td className="px-5 py-4 text-slate-400" colSpan={6}>No giveaway claims submitted yet.</td>
+                </tr>
+              ) : (
+                bonusClaims.map((claim) => (
+                  <tr key={claim.id} className="border-t border-white/6">
+                    <td className="px-5 py-4">
+                      <div>
+                        <p className="font-medium text-white">{claim.username}</p>
+                        <p className="text-slate-400">{claim.email}</p>
+                      </div>
+                    </td>
+                    <td className="px-5 py-4 text-slate-300">{claim.targetCount} direct members</td>
+                    <td className="px-5 py-4 font-medium text-white">{formatCurrency(claim.bonusAmount)}</td>
+                    <td className="px-5 py-4">
+                      <Badge tone={claim.status === 'approved' ? 'green' : claim.status === 'rejected' ? 'red' : 'amber'}>
+                        {claim.status}
+                      </Badge>
+                    </td>
+                    <td className="px-5 py-4 text-slate-400">{formatDate(claim.createdAt, 'MMM d, yyyy')}</td>
+                    <td className="px-5 py-4">
+                      {claim.status === 'pending' ? (
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => void reviewBonusClaim(claim.id, 'approve')} disabled={busyId === claim.id}>
+                            Approve
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => void reviewBonusClaim(claim.id, 'reject')} disabled={busyId === claim.id}>
+                            Reject
+                          </Button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-500">
+                          {claim.reviewedByUsername ? `Reviewed by ${claim.reviewedByUsername}` : 'Reviewed'}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       <Card className="overflow-hidden">
         <div className="border-b border-white/8 px-5 py-4">
           <h2 className="text-xl font-semibold text-white">Users</h2>

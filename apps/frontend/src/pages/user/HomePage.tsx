@@ -33,6 +33,11 @@ export const HomePage = () => {
   const fetchPromotion = usePromotionStore((state) => state.fetchPromotion);
   const [claimingBonus, setClaimingBonus] = useState(false);
   const [submittingGiveawayClaim, setSubmittingGiveawayClaim] = useState(false);
+  const referralBonusAmount = user?.referralSummary?.bonus.amount ?? 0;
+  const referralBonusTarget = user?.referralSummary?.bonus.targetCount ?? 5;
+  const referralBonusCurrent = user?.referralSummary?.bonus.currentCount ?? 0;
+  const referralBonusStatus = user?.referralSummary?.bonus.status ?? 'locked';
+  const referralBonusEligible = user?.referralSummary?.bonus.eligible ?? false;
 
   useEffect(() => {
     void fetchBalance();
@@ -146,9 +151,11 @@ export const HomePage = () => {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-amber-200">Referral giveaway</p>
-              <h3 className="mt-2 text-xl font-semibold text-white">$500 team reward</h3>
+              <h3 className="mt-2 text-xl font-semibold text-white">
+                {formatCurrency(referralBonusAmount)} team reward
+              </h3>
               <p className="mt-1 text-sm text-slate-300">
-                Reach {user?.referralSummary?.bonus.targetCount ?? 5} direct members, then submit the giveaway for admin review.
+                Reach {referralBonusTarget} direct members, then submit the giveaway for admin review.
               </p>
             </div>
             <div className="rounded-full bg-white/10 p-3 text-brand-yellow">
@@ -160,19 +167,19 @@ export const HomePage = () => {
             <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Progress</p>
               <p className="mt-2 text-2xl font-semibold text-white">
-                {user?.referralSummary?.bonus.currentCount ?? 0}/{user?.referralSummary?.bonus.targetCount ?? 5}
+                {referralBonusCurrent}/{referralBonusTarget}
               </p>
             </div>
             <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Status</p>
               <p className="mt-2 text-2xl font-semibold capitalize text-white">
-                {user?.referralSummary?.bonus.status ?? 'locked'}
+                {referralBonusStatus}
               </p>
             </div>
             <div className="rounded-3xl border border-white/8 bg-white/5 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Amount</p>
               <p className="mt-2 text-2xl font-semibold text-white">
-                ${user?.referralSummary?.bonus.amount.toFixed(2) ?? '500.00'}
+                {formatCurrency(referralBonusAmount)}
               </p>
             </div>
           </div>
@@ -182,11 +189,11 @@ export const HomePage = () => {
               size="lg"
               className="w-full sm:w-auto"
               onClick={() => void handleReferralGiveawayClaim()}
-              disabled={!user?.referralSummary?.bonus.eligible || submittingGiveawayClaim}
+              disabled={!referralBonusEligible || submittingGiveawayClaim}
             >
               {submittingGiveawayClaim
                 ? 'Submitting...'
-                : `Send $${(user?.referralSummary?.bonus.amount ?? 0).toFixed(2)} claim for review`}
+                : `Send ${formatCurrency(referralBonusAmount)} claim for review`}
             </Button>
           </div>
         </Card>

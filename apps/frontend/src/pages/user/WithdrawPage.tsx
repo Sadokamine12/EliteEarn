@@ -19,6 +19,26 @@ export const WithdrawPage = () => {
   const requestWithdrawal = useWalletStore((state) => state.requestWithdrawal);
   const fetchStoreData = useVipStore((state) => state.fetchStoreData);
   const withdrawalStatus = useWithdrawCheck();
+  const conditions = [
+    { label: 'Active VIP subscription', met: withdrawalStatus.hasVIP },
+    ...(withdrawalStatus.referralWithdrawalRequired
+      ? [
+          { label: 'Referral code used', met: withdrawalStatus.usedReferral },
+          {
+            label: 'Referred user activated VIP',
+            met: withdrawalStatus.referralActivatedVip,
+            description: 'This stays red until the invited account upgrades.',
+          },
+        ]
+      : []),
+    {
+      label: `Withdrawal cooldown (${withdrawalStatus.withdrawalIntervalDays} days)`,
+      met: withdrawalStatus.withdrawalFrequencyMet,
+      description: withdrawalStatus.nextWithdrawalAt
+        ? `Next withdrawal unlocks on ${formatDate(withdrawalStatus.nextWithdrawalAt, 'MMM d, yyyy p')}.`
+        : 'No cooldown is currently blocking withdrawals.',
+    },
+  ];
 
   useEffect(() => {
     void fetchBalance();
@@ -37,24 +57,18 @@ export const WithdrawPage = () => {
           <div className="px-4">
             <Card className="p-5">
               <p className="text-sm uppercase tracking-[0.2em] text-brand-red">Withdrawal locked</p>
-              <h2 className="mt-2 text-xl font-semibold text-white">Three conditions must be green before payout opens.</h2>
+              <h2 className="mt-2 text-xl font-semibold text-white">
+                {conditions.length} conditions must be green before payout opens.
+              </h2>
               <div className="mt-5 space-y-3">
-                <ConditionRow label="Active VIP subscription" met={withdrawalStatus.hasVIP} />
-                <ConditionRow label="Referral code used" met={withdrawalStatus.usedReferral} />
-                <ConditionRow
-                  label="Referred user activated VIP"
-                  met={withdrawalStatus.referralActivatedVip}
-                  description="This stays red until the invited account upgrades."
-                />
-                <ConditionRow
-                  label={`Withdrawal cooldown (${withdrawalStatus.withdrawalIntervalDays} days)`}
-                  met={withdrawalStatus.withdrawalFrequencyMet}
-                  description={
-                    withdrawalStatus.nextWithdrawalAt
-                      ? `Next withdrawal unlocks on ${formatDate(withdrawalStatus.nextWithdrawalAt, 'MMM d, yyyy p')}.`
-                      : 'No cooldown is currently blocking withdrawals.'
-                  }
-                />
+                {conditions.map((condition) => (
+                  <ConditionRow
+                    key={condition.label}
+                    label={condition.label}
+                    met={condition.met}
+                    description={condition.description}
+                  />
+                ))}
               </div>
             </Card>
           </div>

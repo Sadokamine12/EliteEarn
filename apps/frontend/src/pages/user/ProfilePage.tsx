@@ -6,7 +6,7 @@ import { MobileLayout } from '@/components/layout/MobileLayout';
 import { TopBar } from '@/components/layout/TopBar';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { formatDate, extractErrorMessage } from '@/lib/utils';
+import { extractErrorMessage, formatCurrency, formatDate } from '@/lib/utils';
 import { useAuthStore } from '@/store/auth.store';
 
 export const ProfilePage = () => {
@@ -16,6 +16,11 @@ export const ProfilePage = () => {
   const [email, setEmail] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isSubmittingBonusClaim, setIsSubmittingBonusClaim] = useState(false);
+  const referralBonusAmount = user?.referralSummary?.bonus.amount ?? 0;
+  const referralBonusCurrent = user?.referralSummary?.bonus.currentCount ?? 0;
+  const referralBonusTarget = user?.referralSummary?.bonus.targetCount ?? 5;
+  const referralBonusStatus = user?.referralSummary?.bonus.status ?? 'locked';
+  const referralBonusEligible = user?.referralSummary?.bonus.eligible ?? false;
 
   useEffect(() => {
     setUsername(user?.username ?? '');
@@ -185,14 +190,14 @@ export const ProfilePage = () => {
               <div>
                 <p className="text-sm uppercase tracking-[0.2em] text-brand-green">Team giveaway</p>
                 <p className="mt-2 text-2xl font-semibold text-white">
-                  ${user?.referralSummary?.bonus.amount.toFixed(2) ?? '0.00'}
+                  {formatCurrency(referralBonusAmount)}
                 </p>
                 <p className="mt-2 text-sm text-slate-400">
-                  {user?.referralSummary?.bonus.currentCount ?? 0} / {user?.referralSummary?.bonus.targetCount ?? 5} direct members
+                  {referralBonusCurrent} / {referralBonusTarget} direct members
                 </p>
               </div>
               <div className="space-y-2 text-right text-sm text-slate-400">
-                <p>Status: <span className="font-semibold capitalize text-white">{user?.referralSummary?.bonus.status ?? 'locked'}</span></p>
+                <p>Status: <span className="font-semibold capitalize text-white">{referralBonusStatus}</span></p>
                 {user?.referralSummary?.bonus.requestedAt ? (
                   <p>Requested {formatDate(user.referralSummary.bonus.requestedAt, 'MMM d, yyyy')}</p>
                 ) : null}
@@ -210,11 +215,13 @@ export const ProfilePage = () => {
               <Button
                 onClick={() => void submitReferralTeamBonusClaim()}
                 disabled={
-                  !user?.referralSummary?.bonus.eligible ||
+                  !referralBonusEligible ||
                   isSubmittingBonusClaim
                 }
               >
-                {isSubmittingBonusClaim ? 'Submitting...' : 'Send $500 claim for review'}
+                {isSubmittingBonusClaim
+                  ? 'Submitting...'
+                  : `Send ${formatCurrency(referralBonusAmount)} claim for review`}
               </Button>
             </div>
           </div>

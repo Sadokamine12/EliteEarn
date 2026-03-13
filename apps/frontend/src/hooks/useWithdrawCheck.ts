@@ -3,6 +3,7 @@ import { useWalletStore } from '@/store/wallet.store';
 export const useWithdrawCheck = () => {
   return useWalletStore((state) => state.withdrawalEligibility) ?? {
     hasVIP: false,
+    referralWithdrawalRequired: true,
     usedReferral: false,
     referralActivatedVip: false,
     withdrawalFrequencyMet: false,

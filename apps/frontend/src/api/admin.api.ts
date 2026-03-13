@@ -9,6 +9,7 @@ import type {
   PaginatedResponse,
   PlatformSetting,
   Promotion,
+  ReferralTeamBonusClaim,
   Subscription,
   Task,
   UpdateTaskDto,
@@ -42,6 +43,12 @@ export const adminApi = {
       amount: number;
     },
   ) => api.patch<User>(`/api/identity/users/${id}/balance`, data),
+  getReferralTeamBonusClaims: () =>
+    api.get<ReferralTeamBonusClaim[]>('/api/identity/users/referral-team-bonus-claims'),
+  approveReferralTeamBonusClaim: (id: string) =>
+    api.patch<ReferralTeamBonusClaim>(`/api/identity/users/referral-team-bonus-claims/${id}/approve`),
+  rejectReferralTeamBonusClaim: (id: string) =>
+    api.patch<ReferralTeamBonusClaim>(`/api/identity/users/referral-team-bonus-claims/${id}/reject`),
   getDeposits: (params?: AdminLedgerQuery) =>
     api.get<PaginatedResponse<Deposit>>('/api/admin/admin/deposits', { params: sanitizeParams(params) }),
   approveDeposit: (id: string) => api.patch<Deposit>(`/api/wallet/deposits/${id}/approve`),
