@@ -542,16 +542,15 @@ export class UsersService {
             claims.bonus_amount,
             claims.status,
             claims.reviewed_by,
-            reviewer.username AS reviewed_by_username,
+            NULL::TEXT AS reviewed_by_username,
             claims.reviewed_at,
             claims.created_at,
             claims.updated_at
           FROM referral_team_bonus_claims claims
           JOIN users claimant ON claimant.id = claims.user_id
-          LEFT JOIN users reviewer ON reviewer.id = claims.reviewed_by
           WHERE claims.id = $1
           LIMIT 1
-          FOR UPDATE
+          FOR UPDATE OF claims
         `,
         [claimId],
       );
@@ -584,6 +583,16 @@ export class UsersService {
       if (currentUser.referral_team_bonus_claimed) {
         throw new BadRequestException('Referral team giveaway has already been approved');
       }
+
+      const reviewerResult = await client.query<{ username: string }>(
+        `
+          SELECT username
+          FROM users
+          WHERE id = $1
+          LIMIT 1
+        `,
+        [reviewerId],
+      );
 
       await client.query(
         `
@@ -639,7 +648,13 @@ export class UsersService {
             created_at,
             updated_at
         `,
-        [claim.id, reviewerId, claim.username, claim.email, 'admin'],
+        [
+          claim.id,
+          reviewerId,
+          claim.username,
+          claim.email,
+          reviewerResult.rows[0]?.username ?? 'admin',
+        ],
       );
 
       return updatedResult.rows[0];
@@ -673,16 +688,15 @@ export class UsersService {
             claims.bonus_amount,
             claims.status,
             claims.reviewed_by,
-            reviewer.username AS reviewed_by_username,
+            NULL::TEXT AS reviewed_by_username,
             claims.reviewed_at,
             claims.created_at,
             claims.updated_at
           FROM referral_team_bonus_claims claims
           JOIN users claimant ON claimant.id = claims.user_id
-          LEFT JOIN users reviewer ON reviewer.id = claims.reviewed_by
           WHERE claims.id = $1
           LIMIT 1
-          FOR UPDATE
+          FOR UPDATE OF claims
         `,
         [claimId],
       );
